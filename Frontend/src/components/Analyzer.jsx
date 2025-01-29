@@ -3,6 +3,8 @@ import React, { useState, useRef } from "react";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import { Pie } from "react-chartjs-2";
 import "./Analyzer.css";
+import Skeleton from "react-loading-skeleton";
+import "react-loading-skeleton/dist/skeleton.css";
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
@@ -260,9 +262,29 @@ const App = () => {
             </section>
 
             {loading ? (
-                <section className="loading-section">
-                    <p>Loading data, please wait...</p>
-                </section>
+                    <div className="skeleton-card">
+
+                        <Skeleton height={30} width={200} className="mb-4" />
+
+                        <div className="skeleton-grid">
+                            <div className="skeleton-chart">
+                                <Skeleton height={25} width={150} className="mt-3" />
+                                <Skeleton circle height={250} width={250} />
+                            </div>
+
+                            <div className="skeleton-text">
+                                <Skeleton height={25} width={150} className="mb-2" />
+                                <Skeleton height={15} width={180} className="mb-1" />
+                                <Skeleton height={15} width={140} className="mb-1" />
+                                <Skeleton height={15} width={160} className="mb-1" />
+                            </div>
+
+                            <div className="skeleton-chart">
+                                <Skeleton height={25} width={150} className="mt-3" />
+                                <Skeleton circle height={250} width={250} />
+                            </div>
+                        </div>
+                    </div>
             ) : (
                 isSearched && inputValue && (
                     <section className="dashboard">
