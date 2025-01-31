@@ -1,16 +1,28 @@
 
-import React, { useState, useRef } from "react";
+import React, {useState, useRef, useEffect} from "react";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import { Pie } from "react-chartjs-2";
 import "./Analyzer.css";
+import { useLocation } from "react-router-dom";
 import Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
 const App = () => {
+
+    const location = useLocation();
+    const params = new URLSearchParams(location.search);
+    const repoUrl = params.get("repo");// Get from query params
+
     const [repoName, setRepoName] = useState("");
-    const [inputValue, setInputValue] = useState("");
+    const [inputValue, setInputValue] = useState( repoUrl || "");
+    useEffect(() => {
+        if (repoUrl) {
+            setInputValue(repoUrl);
+            handleSearch();
+        }
+    }, [repoUrl]);
     const [languagesData, setLanguagesData] = useState({
         labels: [],
         datasets: [
