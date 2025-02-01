@@ -45,6 +45,7 @@ const App = () => {
     });
     const [commitsInfo, setCommitsInfo] = useState([]);
     const [duration, setDuration] = useState("");
+    const [durationDate, setDurationDate] = useState("");
     const [selectedLanguage, setSelectedLanguage] = useState(null);
     const [languageContributors, setLanguageContributors] = useState([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -153,9 +154,13 @@ const App = () => {
             console.log("Commits info processed:", commits);
             setCommitsInfo(commits);
 
-            const durationInDays = durationData.durationInDays;
-            const months = Math.floor(durationInDays / 30);
-            setDuration(`DURATION: ${durationInDays} days (${months} month${months !== 1 ? "s" : ""})`);
+            const durationInDays = durationData.durationInDays + 1;
+            const months = (durationInDays / 30).toFixed(2);
+            setDuration(`DURATION: ${durationInDays} days (${months} month${months >= 1.0 ? "s" : ""})`);
+
+            const durationfirstCommitDate = durationData.firstCommitDate;
+            const durationlastCommitDate = durationData.lastCommitDate;
+            setDurationDate(`${durationfirstCommitDate.substring(0, 10)} to ${durationlastCommitDate.substring(0, 10)}`);
 
             console.log("Duration processed:", duration);
             setLoading(false); // Hide loading once data is fetched
@@ -324,6 +329,7 @@ const App = () => {
                                 </div>
                                 <div className="duration-info">
                                     <p>{duration}</p>
+                                    <p>{durationDate}</p>
                                 </div>
                             </div>
 
