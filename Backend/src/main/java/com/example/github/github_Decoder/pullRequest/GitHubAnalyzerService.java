@@ -7,8 +7,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -33,7 +35,6 @@ public class GitHubAnalyzerService {
         try {
             List<PullRequestDetails> allPRs = fetchAllPullRequests(username);
             List<RepositoryOwnerComment> ownerComments = fetchOwnerComments(allPRs);
-            int forkedReposCount = fetchForkedRepositoriesCount(username);
             
             // Count PR statuses
             int accepted = 0, rejected = 0;
@@ -124,63 +125,126 @@ public class GitHubAnalyzerService {
         HttpEntity<String> entity = new HttpEntity<>(headers);
         
         for (PullRequestDetails pr : prs) {
-            String commentsUrl = GITHUB_API_BASE_URL + "/repos/" + pr.getRepositoryName() + 
-                               "/pulls/" + pr.getPrId() + "/comments";
+            // 1. Fetch PR Review Comments (comments on specific lines of code)
+            String reviewCommentsUrl = GITHUB_API_BASE_URL + "/repos/" + pr.getRepositoryName() + 
+                                     "/pulls/" + pr.getPrId() + "/comments";
+            fetchCommentsFromUrl(reviewCommentsUrl, pr, comments, entity);
             
-            ResponseEntity<JsonNode> response = restTemplate.exchange(
-                commentsUrl,
-                HttpMethod.GET,
-                entity,
-                JsonNode.class
-            );
+            // 2. Fetch PR Issue Comments (general comments on the PR)
+            String issueCommentsUrl = GITHUB_API_BASE_URL + "/repos/" + pr.getRepositoryName() + 
+                                    "/issues/" + pr.getPrId() + "/comments";
+            fetchCommentsFromUrl(issueCommentsUrl, pr, comments, entity);
             
-            for (JsonNode comment : response.getBody()) {
-                String commentAuthor = comment.get("user").get("login").asText();
-                
-                // Check if comment is from repo owner
-                if (isRepositoryOwner(pr.getRepositoryName(), commentAuthor)) {
-                    RepositoryOwnerComment ownerComment = new RepositoryOwnerComment();
-                    ownerComment.setRepositoryName(pr.getRepositoryName());
-                    ownerComment.setOwnerName(commentAuthor);
-                    ownerComment.setComment(comment.get("body").asText());
-                    comments.add(ownerComment);
-                }
-            }
+            // 3. Fetch PR Reviews (overall review comments)
+            String reviewsUrl = GITHUB_API_BASE_URL + "/repos/" + pr.getRepositoryName() + 
+                              "/pulls/" + pr.getPrId() + "/reviews";
+            fetchReviewsFromUrl(reviewsUrl, pr, comments, entity);
         }
         
         return comments;
     }
     
-    private boolean isRepositoryOwner(String repoFullName, String username) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(githubToken);
-        HttpEntity<String> entity = new HttpEntity<>(headers);
-        
-        String repoUrl = GITHUB_API_BASE_URL + "/repos/" + repoFullName;
-        ResponseEntity<JsonNode> response = restTemplate.exchange(
-            repoUrl,
-            HttpMethod.GET,
-            entity,
-            JsonNode.class
-        );
-        
-        String owner = response.getBody().get("owner").get("login").asText();
-        return owner.equals(username);
+    private void fetchCommentsFromUrl(String url, PullRequestDetails pr, 
+                                    List<RepositoryOwnerComment> comments, 
+                                    HttpEntity<String> entity) {
+        try {
+            ResponseEntity<JsonNode> response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                entity,
+                JsonNode.class
+            );
+            
+            if (response.getBody() != null) {
+                for (JsonNode comment : response.getBody()) {
+                    String commentAuthor = comment.get("user").get("login").asText();
+                    
+                    // Check if comment is from repo owner or collaborator
+                    if (isRepositoryOwnerOrCollaborator(pr.getRepositoryName(), commentAuthor)) {
+                        RepositoryOwnerComment ownerComment = new RepositoryOwnerComment();
+                        ownerComment.setRepositoryName(pr.getRepositoryName());
+                        ownerComment.setOwnerName(commentAuthor);
+                        ownerComment.setComment(comment.get("body").asText());
+                        comments.add(ownerComment);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Log error but continue processing other comments
+      }
     }
     
-    private int fetchForkedRepositoriesCount(String username) {
+    private void fetchReviewsFromUrl(String url, PullRequestDetails pr, 
+                                   List<RepositoryOwnerComment> comments, 
+                                   HttpEntity<String> entity) {
+        try {
+            ResponseEntity<JsonNode> response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                entity,
+                JsonNode.class
+            );
+            
+            if (response.getBody() != null) {
+                for (JsonNode review : response.getBody()) {
+                    String reviewAuthor = review.get("user").get("login").asText();
+                    JsonNode bodyNode = review.get("body");
+                    
+                    // Only process reviews that have a body text
+                    if (bodyNode != null && !bodyNode.isNull() && 
+                        isRepositoryOwnerOrCollaborator(pr.getRepositoryName(), reviewAuthor)) {
+                        RepositoryOwnerComment ownerComment = new RepositoryOwnerComment();
+                        ownerComment.setRepositoryName(pr.getRepositoryName());
+                        ownerComment.setOwnerName(reviewAuthor);
+                        ownerComment.setComment(bodyNode.asText());
+                        comments.add(ownerComment);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Log error but continue processing other reviews
+        }
+    }
+    
+    private boolean isRepositoryOwnerOrCollaborator(String repoFullName, String username) {
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(githubToken);
         HttpEntity<String> entity = new HttpEntity<>(headers);
         
-        String forkedReposUrl = GITHUB_API_BASE_URL + "/users/" + username + "/repos?type=fork";
-        ResponseEntity<JsonNode> response = restTemplate.exchange(
-            forkedReposUrl,
-            HttpMethod.GET,
-            entity,
-            JsonNode.class
-        );
-        
-        return response.getBody().size();
+        try {
+            // First check if user is the repository owner
+            String repoUrl = GITHUB_API_BASE_URL + "/repos/" + repoFullName;
+            ResponseEntity<JsonNode> repoResponse = restTemplate.exchange(
+                repoUrl,
+                HttpMethod.GET,
+                entity,
+                JsonNode.class
+            );
+            
+            String owner = repoResponse.getBody().get("owner").get("login").asText();
+            if (owner.equals(username)) {
+                return true;
+            }
+            
+            // Then check if user is a collaborator
+            String collaboratorUrl = GITHUB_API_BASE_URL + "/repos/" + repoFullName + 
+                                   "/collaborators/" + username;
+            try {
+                ResponseEntity<String> collabResponse = restTemplate.exchange(
+                    collaboratorUrl,
+                    HttpMethod.GET,
+                    entity,
+                    String.class
+                );
+                return collabResponse.getStatusCode() == HttpStatus.NO_CONTENT;
+            } catch (HttpClientErrorException e) {
+                if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                    return false;
+                }
+                throw e;
+            }
+        } catch (Exception e) {
+            return false;
+        }
     }
 }
